@@ -25,15 +25,15 @@ python evaluation/evaluate.py --task t1 --predictions results/t1_predictions.jso
 
 ## Benchmark Overview
 
-| Task | Name | Tier | Output | Instances | Primary Metrics |
-|------|------|------|--------|-----------|-----------------|
-| T1 | Market Volume Prediction | Forecast | 3-class (`high`/`moderate`/`low`) | 326 | Macro-F1, `high`-class P@K |
-| T2 | Post-to-Market Linking | Resolution | Market ID or `none` | 815 | Accuracy@1, MRR |
-| T3 | Evidence Grading | Resolution | Ordinal 0--5 | 342,552 | QWK (kappa), macro-F1 |
-| T4 | Market Movement Prediction | Forecast | Direction x Magnitude | 4,803 | Dir-Acc, Mag-F1, Spearman rho |
-| T5 | Volume & Price Impact | Forecast | Continuous | 407 (268 clean) | Spearman rho (price_impact, volume_multiplier) |
-| T6 | Cross-Market Propagation | Forecast | 3-class | 4,006 | Macro-F1, MAE (onset lag) |
-| T7 | Impact Persistence (Decay) | Forecast | 3-class (`transient`/`sustained`/`reversal`) | 407 (268 clean) | Macro-F1 |
+| Task | Name | Tier | Output | Primary Metrics |
+|------|------|------|--------|-----------------|
+| T1 | Market Volume Prediction | Forecast | 3-class (`high`/`moderate`/`low`) | Macro-F1, `high`-class P@K |
+| T2 | Post-to-Market Linking | Resolution | Market ID or `none` | Accuracy@1, MRR |
+| T3 | Evidence Grading | Resolution | Ordinal 0--5 | QWK (kappa), macro-F1 |
+| T4 | Market Movement Prediction | Forecast | Direction x Magnitude | Dir-Acc, Mag-F1, Spearman rho |
+| T5 | Volume & Price Impact | Forecast | Continuous | Spearman rho (price_impact, volume_multiplier) |
+| T6 | Cross-Market Propagation | Forecast | 3-class | Macro-F1, MAE (onset lag) |
+| T7 | Impact Persistence (Decay) | Forecast | 3-class (`transient`/`sustained`/`reversal`) | Macro-F1 |
 
 ## Tasks
 
