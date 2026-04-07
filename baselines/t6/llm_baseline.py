@@ -17,11 +17,12 @@ import os
 import re
 import time
 
-import pandas as pd
+try:
+    from .data_utils import LABEL_ORDER, clean_t6_dataframe, load_t6_dataframe, select_eval_split
+except ImportError:
+    from data_utils import LABEL_ORDER, clean_t6_dataframe, load_t6_dataframe, select_eval_split
 
-import eventxbench
-
-LABELS = ["no_cross_market_effect", "primary_mover", "propagated_signal"]
+LABELS = LABEL_ORDER
 
 # ---------------------------------------------------------------------------
 # Prompt construction
@@ -197,28 +198,36 @@ def main() -> None:
     parser.add_argument("--output", default="t6_llm_results.jsonl")
     parser.add_argument("--delay", type=float, default=0.3)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--repo", default="mlsys-io/EventXBench")
     parser.add_argument("--local-dir", default=None)
+    parser.add_argument(
+        "--feature-file",
+        default=None,
+        help="Path to unified T6 feature JSONL with split column.",
+    )
+    parser.add_argument(
+        "--eval-split",
+        choices=["val", "test", "all"],
+        default="all",
+        help="Default is 'all' to reproduce the existing all-clean LLM leaderboard rows.",
+    )
+    parser.add_argument("--include-confounded", action="store_true")
+    parser.add_argument("--include-insufficient", action="store_true")
     args = parser.parse_args()
 
     # -- Load data ----------------------------------------------------------
-    data = eventxbench.load_task("t6", local_dir=args.local_dir)
-    if isinstance(data, tuple):
-        _, df = data
-    else:
-        df = data
+    df = load_t6_dataframe(args.feature_file, args.local_dir, repo=args.repo)
 
     if "label" not in df.columns:
         raise ValueError("Missing 'label' column in T6 data.")
 
-    # Filter to valid labels
-    df = df[df["label"].isin(LABELS)].reset_index(drop=True)
+    df = clean_t6_dataframe(
+        df,
+        include_insufficient=args.include_insufficient,
+        include_confounded=args.include_confounded,
+    )
+    df = select_eval_split(df, args.eval_split)
     eval_labels = LABELS
-
-    # Optionally filter out confounded rows
-    if "confound_flag" in df.columns:
-        n_before = len(df)
-        df = df[df["confound_flag"] == False].reset_index(drop=True)
-        print(f"Filtered confounded rows: {n_before} -> {len(df)}")
 
     print(f"T6 samples: {len(df)}, model: {args.model}, shots: {args.shots}")
 

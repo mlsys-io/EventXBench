@@ -14,11 +14,11 @@ import argparse
 from collections import Counter
 
 import numpy as np
-import pandas as pd
 
-import eventxbench
-
-LABEL_ORDER = ["no_cross_market_effect", "primary_mover", "propagated_signal"]
+try:
+    from .data_utils import LABEL_ORDER, load_t6_dataframe, train_eval_frames
+except ImportError:
+    from data_utils import LABEL_ORDER, load_t6_dataframe, train_eval_frames
 
 
 # ---------------------------------------------------------------------------
@@ -82,39 +82,27 @@ def _random_baseline(y_true: list[str], labels: list[str], seeds: list[int] | No
 # ---------------------------------------------------------------------------
 def main() -> None:
     parser = argparse.ArgumentParser(description="T6 basic baselines")
+    parser.add_argument("--repo", default="mlsys-io/EventXBench")
     parser.add_argument("--local-dir", default=None)
     parser.add_argument("--feature-file", default=None,
                         help="Path to feature JSONL with split column (e.g. t6_db_features.jsonl)")
+    parser.add_argument(
+        "--eval-split",
+        choices=["val", "test", "all"],
+        default="test",
+        help="Evaluation split. Use 'all' only for reproducing all-clean LLM-style runs.",
+    )
+    parser.add_argument("--include-confounded-eval", action="store_true")
+    parser.add_argument("--include-insufficient", action="store_true")
     args = parser.parse_args()
 
-    if args.feature_file:
-        full_df = pd.read_json(args.feature_file, lines=True)
-        full_df = full_df[full_df["insufficient_data_flag"] == False].copy()
-        full_df = full_df[full_df["label"].isin(LABEL_ORDER)].copy()
-        train_df = full_df[full_df["split"] == "train"].copy()
-        test_df = full_df[(full_df["split"] == "test") & (full_df["confound_flag"] == False)].copy()
-    else:
-        data = eventxbench.load_task("t6", local_dir=args.local_dir)
-        if isinstance(data, tuple):
-            train_df, test_df = data
-            full_df = pd.concat([train_df, test_df], ignore_index=True)
-        else:
-            full_df = data
-
-        if "insufficient_data_flag" in full_df.columns:
-            full_df = full_df[full_df["insufficient_data_flag"] == False].reset_index(drop=True)
-        full_df = full_df[full_df["label"].isin(LABEL_ORDER)].reset_index(drop=True)
-
-        if "split" in full_df.columns:
-            train_df = full_df[full_df["split"] == "train"].copy()
-            test_df = full_df[full_df["split"] == "test"].copy()
-        else:
-            split_idx = int(len(full_df) * 0.8)
-            train_df = full_df.iloc[:split_idx].copy()
-            test_df = full_df.iloc[split_idx:].copy()
-
-        if "confound_flag" in test_df.columns:
-            test_df = test_df[test_df["confound_flag"] == False].reset_index(drop=True)
+    full_df = load_t6_dataframe(args.feature_file, args.local_dir, repo=args.repo)
+    train_df, test_df = train_eval_frames(
+        full_df,
+        eval_split=args.eval_split,
+        include_confounded_eval=args.include_confounded_eval,
+        include_insufficient=args.include_insufficient,
+    )
 
     eval_labels = LABEL_ORDER
     y_true = test_df["label"].tolist()
