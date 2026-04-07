@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""T1 LLM Baseline -- Pre-Market Interest Forecasting.
+"""T1 LLM Baseline -- Pre-Market Interest Forecasting
 
 Classifies prediction-market questions into interest levels
 (high_interest / moderate_interest / low_interest) using either hosted LLMs
