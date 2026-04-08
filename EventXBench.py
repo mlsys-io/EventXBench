@@ -40,6 +40,7 @@ _URLS = {
     "t5_train": "data/t5/train.jsonl",
     "t5_test": "data/t5/test.jsonl",
     "t6_train": "data/t6/train.jsonl",
+    "t6_validation": "data/t6/validation.jsonl",
     "t6_test": "data/t6/test.jsonl",
     "t7_train": "data/t7/train.jsonl",
     "t7_test": "data/t7/test.jsonl",
@@ -121,6 +122,7 @@ class EventXBench(datasets.GeneratorBasedBuilder):
 
         splits = []
         train_key = f"{config}_train"
+        validation_key = f"{config}_validation"
         test_key = f"{config}_test"
 
         if train_key in downloaded:
@@ -128,6 +130,13 @@ class EventXBench(datasets.GeneratorBasedBuilder):
                 datasets.SplitGenerator(
                     name=datasets.Split.TRAIN,
                     gen_kwargs={"filepath": downloaded[train_key]},
+                )
+            )
+        if validation_key in downloaded:
+            splits.append(
+                datasets.SplitGenerator(
+                    name=datasets.Split.VALIDATION,
+                    gen_kwargs={"filepath": downloaded[validation_key]},
                 )
             )
         if test_key in downloaded:

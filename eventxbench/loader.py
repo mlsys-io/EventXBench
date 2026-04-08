@@ -32,7 +32,7 @@ def load_task(
         task: Task name (t1-t6).
         repo: Hugging Face dataset repo ID.
         local_dir: If set, load from local directory instead of HF.
-        split: If set, return only this split ("train" or "test").
+        split: If set, return only this split ("train", "validation"/"val", or "test").
                If None, returns (train, test) tuple for tasks with both splits,
                or just test DataFrame for tasks with only test.
 
@@ -54,7 +54,8 @@ def _load_hf(task: str, repo: str, split: Optional[str]):
     ds = load_dataset(repo, task, trust_remote_code=True)
 
     if split:
-        return ds[split].to_pandas()
+        split_name = _normalize_split_name(split, ds.keys())
+        return ds[split_name].to_pandas()
 
     splits = list(ds.keys())
     if "train" in splits and "test" in splits:
@@ -82,7 +83,13 @@ _HF_LAYOUT = {
     "t3": {"test": "t3/test.jsonl"},
     "t4": {"train": "t4/train.jsonl", "test": "t4/test.jsonl"},
     "t5": {"train": "t5/train.jsonl", "test": "t5/test.jsonl"},
-    "t6": {"train": "t6/train.jsonl", "test": "t6/test.jsonl"},
+    "t6": {
+        "full": "t6/t6_full_with_split.jsonl",
+        "train": "t6/train.jsonl",
+        "val": "t6/val.jsonl",
+        "validation": "t6/validation.jsonl",
+        "test": "t6/test.jsonl",
+    },
     "t7": {"train": "t7/train.jsonl", "test": "t7/test.jsonl"},
 }
 
@@ -96,17 +103,46 @@ _RAW_LAYOUT = {
     "t3": {"test": "task3/t3_final_graded.json"},
     "t4": {"full": "task4/t4_labels.jsonl"},
     "t5": {"full": "task5+7/t5(7)_label.jsonl"},
-    "t6": {"full": "task6/task6_labels_v2_tuned_t35confound_full.jsonl"},
+    "t6": {
+        "full": (
+            "task6/t6_full_with_split.jsonl",
+            "task6/t6_labels_with_split.jsonl",
+            "task6/task6_labels_v2_tuned_t35confound_full.jsonl",
+        )
+    },
     "t7": {"full": "task5+7/t5(7)_label.jsonl"},
 }
 
 
 def _detect_layout(data_dir: Path, task: str) -> str:
     """Auto-detect which directory layout is present."""
-    hf_path = data_dir / _HF_LAYOUT[task].get("test", _HF_LAYOUT[task].get("train", ""))
-    if hf_path.exists():
+    if any((data_dir / rel_path).exists() for rel_path in _HF_LAYOUT[task].values()):
         return "hf"
     return "raw"
+
+
+def _resolve_layout_path(data_dir: Path, relative_path):
+    if isinstance(relative_path, (tuple, list)):
+        for candidate in relative_path:
+            path = data_dir / candidate
+            if path.exists():
+                return path
+        return data_dir / relative_path[0]
+    return data_dir / relative_path
+
+
+def _normalize_split_name(split: str, available) -> str:
+    available_set = set(available)
+    if split in available_set:
+        return split
+    aliases = {
+        "val": "validation",
+        "validation": "val",
+    }
+    alias = aliases.get(split)
+    if alias in available_set:
+        return alias
+    return split
 
 
 def _load_local(task: str, data_dir: Path, split: Optional[str]):
@@ -121,11 +157,22 @@ def _load_hf_layout(task: str, data_dir: Path, split: Optional[str]):
     """Load from prepared HF directory structure."""
     files = _HF_LAYOUT[task]
 
+    if "full" in files and (data_dir / files["full"]).exists():
+        df = _load_jsonl(data_dir / files["full"])
+        if split:
+            split_value = "val" if split == "validation" else split
+            return df[df["split"] == split_value].reset_index(drop=True)
+        return (
+            df[df["split"] == "train"].reset_index(drop=True),
+            df[df["split"] == "test"].reset_index(drop=True),
+        )
+
     if split:
-        if split not in files:
+        split_key = _normalize_split_name(split, files.keys())
+        if split_key not in files:
             available = sorted(files.keys())
             raise ValueError(f"Task {task} has no '{split}' split. Available: {available}")
-        return _load_jsonl(data_dir / files[split])
+        return _load_jsonl(data_dir / files[split_key])
 
     if "train" in files and "test" in files:
         return _load_jsonl(data_dir / files["train"]), _load_jsonl(data_dir / files["test"])
@@ -138,11 +185,20 @@ def _load_raw_layout(task: str, data_dir: Path, split: Optional[str]):
     files = _RAW_LAYOUT[task]
 
     if "full" in files:
-        path = data_dir / files["full"]
+        path = _resolve_layout_path(data_dir, files["full"])
         if path.suffix == ".json":
             df = pd.read_json(path)
         else:
             df = _load_jsonl(path)
+
+        if "split" in df.columns:
+            if split:
+                split_value = "val" if split == "validation" else split
+                return df[df["split"] == split_value].reset_index(drop=True)
+            if {"train", "test"}.issubset(set(df["split"].dropna().unique())):
+                train_df = df[df["split"] == "train"].reset_index(drop=True)
+                test_df = df[df["split"] == "test"].reset_index(drop=True)
+                return train_df, test_df
 
         split_idx = int(len(df) * 0.8)
         train_df = df.iloc[:split_idx].reset_index(drop=True)
