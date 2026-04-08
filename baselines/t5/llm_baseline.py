@@ -48,10 +48,19 @@ FEW_SHOT_EXAMPLES = [
 ]
 
 TASK_DESCRIPTION = """\
-Decay class definitions:
+Task7 targets and definitions:
+1) price_impact_h: max absolute YES-price move from post time to horizon h (non-negative).
+2) volume_multiplier_h: horizon volume divided by baseline volume (non-negative).
+3) decay_class in {transient, sustained, reversal}.
+
+Decay class definitions (important):
 - transient: impact spikes early but clearly fades by later horizons; information effect does not persist.
 - sustained: impact remains meaningfully elevated through later horizons (2h/6h), indicating persistent repricing.
-- reversal: initial impact is later unwound or opposed; the net effect weakens sharply and may contradict the early move."""
+- reversal: initial impact is later unwound/opposed, i.e., net effect weakens sharply and contradicts early move semantics.
+
+Privacy/data rule:
+- Do not rely on tweet text or market text. Use only the provided numeric horizon signals.
+"""
 
 
 def _format_impacts(price_impacts: dict, volume_multipliers: dict) -> str:
@@ -65,17 +74,21 @@ def _format_impacts(price_impacts: dict, volume_multipliers: dict) -> str:
 
 def _build_prompt_0shot(price_impacts: dict, volume_multipliers: dict) -> str:
     return (
-        "You are classifying the persistence of a tweet's impact on a prediction market.\n\n"
+        "You are a careful forecasting assistant for Task7 decay classification.\n\n"
         f"{TASK_DESCRIPTION}\n\n"
         f"{_format_impacts(price_impacts, volume_multipliers)}\n\n"
-        "Based on the price impact trajectory, classify the decay pattern.\n"
-        "Reply with ONLY a JSON object: {\"decay_class\": \"transient\" | \"sustained\" | \"reversal\"}"
+        "Classify decay_class from the numeric trajectory only.\n"
+        "Output requirements:\n"
+        "- Return strict JSON only.\n"
+        "- Exactly one key: decay_class.\n"
+        "- decay_class must be one of transient/sustained/reversal.\n"
+        "Reply with ONLY: {\"decay_class\": \"transient\" | \"sustained\" | \"reversal\"}"
     )
 
 
 def _build_prompt_3shot(price_impacts: dict, volume_multipliers: dict) -> str:
     lines = [
-        "You are classifying the persistence of a tweet's impact on a prediction market.",
+        "You are a careful forecasting assistant for Task7 decay classification.",
         "",
         TASK_DESCRIPTION,
         "",
@@ -90,7 +103,8 @@ def _build_prompt_3shot(price_impacts: dict, volume_multipliers: dict) -> str:
         "",
         _format_impacts(price_impacts, volume_multipliers),
         "",
-        "Reply with ONLY a JSON object: {\"decay_class\": \"transient\" | \"sustained\" | \"reversal\"}",
+        "Use numeric signals only (no text assumptions).",
+        "Reply with ONLY: {\"decay_class\": \"transient\" | \"sustained\" | \"reversal\"}",
     ]
     return "\n".join(lines)
 

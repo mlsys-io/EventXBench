@@ -50,24 +50,23 @@ DEFAULT_OPENAI_MODEL = "gpt-4o"
 DEFAULT_ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
 
 SYSTEM_PROMPT = """\
-You are a market-microreaction forecaster for prediction markets.
+You are a careful market-microreaction forecaster.
+Use only the provided fields and output strict JSON only.
 
-You will be given information about a tweet-market pair. Your task is to predict
-the absolute YES-price change (delta) at three horizons: 30 minutes, 2 hours,
-and 6 hours after the tweet.
+Task:
+Predict YES-price deltas at three horizons: 30m, 2h, 6h.
 
-Definitions:
-- delta_h = future_price_h - current_price
-- future_price must be in [0, 1], so each delta must be in [-current_price, 1 - current_price]
+Definition:
+- delta_h means ABSOLUTE YES-price change from current_price to horizon h.
+- future_price_h = current_price + delta_h
+- future_price_h must stay in [0, 1]
 
-Return ONLY valid JSON with exactly these keys:
+Output schema (exact keys, no extras):
 {
-  "delta_30m": 0.0,
-  "delta_2h": 0.0,
-  "delta_6h": 0.0
+    "delta_30m": number,
+    "delta_2h": number,
+    "delta_6h": number
 }
-
-Each value must be a decimal number. No extra text, no markdown.
 """
 
 
@@ -84,6 +83,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--local-dir", default=None, help="Local data directory")
     parser.add_argument("--output", default="t4_llm_predictions.jsonl")
     parser.add_argument("--limit", type=int, default=0, help="Max samples to evaluate")
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=480,
+        help="Randomly sample this many rows before inference (0 disables sampling)",
+    )
+    parser.add_argument("--sample-seed", type=int, default=42, help="Random seed for sampling")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--sleep", type=float, default=0.0)
@@ -201,10 +207,49 @@ def build_user_prompt(
 ) -> str:
     price = float(row.get("price_t0", 0.5))
     cid = row.get("condition_id", "unknown")
+    price_low = -price
+    price_high = 1.0 - price
 
-    parts = ["Task 4: Market Movement Prediction\n"]
+    parts = ["Predict market movement after a tweet."]
+
+    post_text = row.get("post_text")
+    market_question = row.get("market_question")
+    if post_text:
+        parts.append(f"- post_text: {post_text}")
+    if market_question:
+        parts.append(f"- market_question: {market_question}")
+
+    parts.append(f"- condition_id: {cid}")
+    parts.append(f"- current_price: {price:.4f}")
+
+    # Optional side features if upstream data contains them.
+    like_count = row.get("like_count")
+    reply_count = row.get("reply_count")
+    view_count = row.get("view_count")
+    follower_count = row.get("follower_count")
+    volume_24h_baseline = row.get("volume_24h_baseline")
+    category = row.get("category")
+    if like_count is not None and reply_count is not None and view_count is not None:
+        parts.append(
+            f"- Engagement: {like_count} likes, {reply_count} replies, {view_count} views"
+        )
+    if follower_count is not None:
+        parts.append(f"- Author followers: {follower_count}")
+    if volume_24h_baseline is not None:
+        parts.append(f"- Market volume (24h baseline): {float(volume_24h_baseline):.2f}")
+    if category:
+        parts.append(f"- Market category: {category}")
+
+    parts.append("")
+    parts.append("Definition of delta:")
+    parts.append("- delta_h means ABSOLUTE YES-price change from current_price to horizon h.")
+    parts.append("- future_price_h = current_price + delta_h.")
+    parts.append(
+        f"- future_price_h must be in [0,1], so each delta_h must be in [{price_low:.6f}, {price_high:.6f}]."
+    )
 
     if few_shot:
+        parts.append("")
         parts.append("Labeled examples:")
         for i, ex in enumerate(few_shot, 1):
             ep = float(ex.get("price_t0", 0.5))
@@ -217,18 +262,12 @@ def build_user_prompt(
                 f"\"delta_2h\": {ex.get('delta_2h', 0):.4f}, "
                 f"\"delta_6h\": {ex.get('delta_6h', 0):.4f}}}"
             )
-        parts.append("")
 
-    parts.append("Target instance:")
-    parts.append(f"  condition_id: {cid}")
-    parts.append(f"  current_price: {price:.4f}")
-    parts.append(f"  valid delta range: [{-price:.4f}, {1-price:.4f}]")
     parts.append("")
-    parts.append(
-        "Note: Only limited fields are available in this benchmark setting. "
-        "Tweet text can be obtained by rehydrating tweet IDs via the Twitter/X API."
-    )
-    parts.append("\nReturn strict JSON only.")
+    parts.append("Output requirements:")
+    parts.append("- delta_30m, delta_2h, delta_6h must be decimal numbers in [-1, 1].")
+    parts.append("- Do not add extra keys.")
+    parts.append("- Return strict JSON only.")
     return "\n".join(parts)
 
 
@@ -412,6 +451,12 @@ def main() -> None:
     print(f"Loaded {len(df)} rows")
 
     records = df.to_dict("records")
+
+    # Default behavior: run on a reproducible random subset to control API cost.
+    if args.sample_size > 0 and len(records) > args.sample_size:
+        sampled_df = df.sample(n=args.sample_size, random_state=args.sample_seed).reset_index(drop=True)
+        records = sampled_df.to_dict("records")
+
     if args.limit > 0:
         records = records[: args.limit]
 

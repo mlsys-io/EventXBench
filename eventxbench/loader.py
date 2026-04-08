@@ -51,7 +51,7 @@ def load_task(
 def _load_hf(task: str, repo: str, split: Optional[str]):
     from datasets import load_dataset
 
-    ds = load_dataset(repo, task)
+    ds = load_dataset(repo, task, trust_remote_code=True)
 
     if split:
         return ds[split].to_pandas()
